@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamcity-server-datadir-config
+  namespace: teamcity
+data:
+  database.properties: |
+    connectionUrl=jdbc:postgresql://postgresql.teamcity:5432/teamcity
+    connectionProperties.user=teamcity
+    connectionProperties.password=teamcity-pass
+    maxConnections=50
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamcity-server-startup-wrp
+  namespace: teamcity
+data:
+  run-services-wrp.sh: |
+    #!/bin/bash
+    HOSTNAME=$(cat /etc/hostname)
+
+    # Check if database is already initialized
+    initfile=${TEAMCITY_DATA_PATH}/system/dataDirectoryInitialized
+    if [ "$HOSTNAME" == "teamcity-server-0" ]; then
+      if [ ! -f $initfile ]; then
+        echo $initfile not found
+        echo Assume initial setup
+        index=0
+        while [ -d ${TEAMCITY_DATA_PATH}/config.back.$index ]; do
+          index=$((index + 1))
+        done
+        echo Hide mounted files
+        mv -v ${TEAMCITY_DATA_PATH}/config ${TEAMCITY_DATA_PATH}/config.back.$index
+      fi
+    fi
+
+    set -x
+    case "$HOSTNAME" in
+    "teamcity-server-0")
+      export ROOT_URL=http://teamcity-server-0.teamcity-server-headless.teamcity:8111
+      export NODE_ID=teamcity-server-0
+      export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=${NODE_ID} -Dteamcity.server.rootURL=${ROOT_URL} $TEAMCITY_SERVER_OPTS"
+      
+      # Check if this is initial setup or multinode setup
+      if [ ! -f $initfile ]; then
+        echo "Initial setup - starting without multinode responsibilities"
+        # No responsibilities during initial setup
+      else
+        echo "Override server responsibilities for main node"
+        export TEAMCITY_SERVER_OPTS="-Dteamcity.server.responsibilities=MAIN_NODE,CAN_PROCESS_BUILD_TRIGGERS,CAN_PROCESS_USER_DATA_MODIFICATION_REQUESTS,CAN_CHECK_FOR_CHANGES,CAN_PROCESS_BUILD_MESSAGES $TEAMCITY_SERVER_OPTS"
+      fi
+      
+      # Add node data path
+      export TEAMCITY_SERVER_OPTS="-Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+      exec /run-services.sh
+    ;;
+    "teamcity-server-1")
+      # Secondary node - only start if database is initialized
+      if [ ! -f $initfile ]; then
+        echo "ERROR: Database not initialized. Secondary node cannot start before main node completes initialization."
+        echo "Please ensure teamcity-server-0 completes setup first."
+        exit 1
+      fi
+      
+      export ROOT_URL=http://teamcity-server-1.teamcity-server-headless.teamcity:8111
+      export NODE_ID=teamcity-server-1
+      export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=${NODE_ID} -Dteamcity.server.rootURL=${ROOT_URL} $TEAMCITY_SERVER_OPTS"
+      echo "Override server responsibilities for secondary node"
+      export TEAMCITY_SERVER_OPTS="-Dteamcity.server.responsibilities=CAN_PROCESS_BUILD_TRIGGERS,CAN_PROCESS_USER_DATA_MODIFICATION_REQUESTS,CAN_CHECK_FOR_CHANGES,CAN_PROCESS_BUILD_MESSAGES $TEAMCITY_SERVER_OPTS"
+      
+      # Add node data path
+      export TEAMCITY_SERVER_OPTS="-Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+      exec /run-services.sh
+    ;;
+    *)
+      echo "Unknown hostname: $HOSTNAME"
+      echo "Expected: teamcity-server-0 or teamcity-server-1"
+      exit 1
+    ;;
+    esac
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamcity-server-haproxy-cfg
+  namespace: teamcity
+data:
+  haproxy.cfg: |
+    defaults
+        mode http
+        timeout connect 240s
+        timeout client 1200s
+        timeout server 1200s
+
+    frontend http-in
+        bind *:80
+
+        stats enable
+        stats uri /healthz
+
+        option httplog
+        log stdout local0  info
+
+        option http-buffer-request
+        declare capture request len 40000000
+        http-request capture req.body id 0
+        capture request header user-agent len 150
+        capture request header Host len 15
+
+        capture cookie X-TeamCity-Node-Id-Cookie= len 100
+
+        http-request add-header X-TeamCity-Proxy "type=haproxy; version=2023.11"
+        http-request set-header X-Forwarded-Host %[req.hdr(Host)]
+
+        acl node_id_cookie_found req.cook(X-TeamCity-Node-Id-Cookie) -m found
+        acl browser req.hdr(User-Agent) -m sub Mozilla
+
+        default_backend clients_not_supporting_cookies
+        use_backend clients_with_node_id_cookie if node_id_cookie_found
+        use_backend clients_supporting_cookies if browser
+
+    backend clients_with_node_id_cookie
+        # this backend handles the clients that provided the "X-TeamCity-Node-Id-Cookie" cookie
+        # clients that do so are TeamCity agents and browsers handling HTTP requests asking to switch to a specific node
+        cookie X-TeamCity-Node-Id-Cookie
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+        retry-on empty-response conn-failure response-timeout 502 503 504
+        retries 5
+
+        option httpchk GET /healthCheck/ready
+
+        default-server check fall 6 inter 10000 downinter 5000
+
+        server teamcity-server-0 teamcity-server-direct-0:8111 cookie teamcity-server-0
+        server teamcity-server-1 teamcity-server-direct-1:8111 cookie teamcity-server-1
+
+    backend clients_supporting_cookies
+        # this backend is for the browsers without "X-TeamCity-Node-Id-Cookie"
+        # these requests will be served in a round-robin manner to a healthy server
+        balance roundrobin
+        option redispatch
+        cookie TCSESSIONID prefix nocache
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+
+        option httpchk
+
+        http-check connect
+        http-check send meth GET uri /healthCheck/preferredNodeStatus
+        http-check expect status 200
+
+        default-server check fall 6 inter 10000 downinter 5000 on-marked-down shutdown-sessions
+
+        server teamcity-server-0 teamcity-server-direct-0:8111 cookie n1 weight 50
+        server teamcity-server-1 teamcity-server-direct-1:8111 cookie n2 weight 50
+
+    backend clients_not_supporting_cookies
+        # for compatibility reasons requests from non browser clients are always
+        # routed to a single node (the first healthy)
+        balance first
+        option redispatch
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+
+        option httpchk
+
+        http-check connect
+        http-check send meth GET uri /healthCheck/preferredNodeStatus
+        http-check expect status 200
+
+        default-server check fall 6 inter 10000 downinter 5000 on-marked-down shutdown-sessions
+
+        server teamcity-server-0 teamcity-server-direct-0:8111
+        server teamcity-server-1 teamcity-server-direct-1:8111

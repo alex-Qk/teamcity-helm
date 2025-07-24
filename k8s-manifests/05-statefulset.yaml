@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: teamcity-server
+  namespace: teamcity
+spec:
+  replicas: 2
+  serviceName: teamcity-server-headless
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: teamcity-server
+      component: server
+  template:
+    metadata:
+      labels:
+        app: teamcity-server
+        component: server
+    spec:
+      containers:
+      - name: teamcity-server
+        image: jetbrains/teamcity-server:latest
+        imagePullPolicy: Always
+        command:
+        - /run-services-wrp.sh
+        env:
+        - name: TEAMCITY_SERVER_MEM_OPTS
+          value: "-Xms512m -Xmx2048m"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        livenessProbe:
+          httpGet:
+            path: /healthCheck/healthy
+            port: http
+            scheme: HTTP
+          failureThreshold: 3
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthCheck/ready
+            port: http
+            scheme: HTTP
+          failureThreshold: 2
+          periodSeconds: 10
+        ports:
+        - containerPort: 8111
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 2048Mi
+        volumeMounts:
+        - mountPath: /data/teamcity_server/datadir
+          name: teamcity-server-data
+        - name: datadir-config
+          mountPath: /data/teamcity_server/datadir/config/database.properties
+          subPath: database.properties
+        - mountPath: /opt/teamcity/node-data
+          name: node-data
+        - mountPath: /run-services-wrp.sh
+          name: startup-wrp
+          subPath: run-services-wrp.sh
+        - mountPath: /home/tcuser
+          name: home-tcuser
+      volumes:
+      - name: datadir-config
+        configMap:
+          defaultMode: 0644
+          name: teamcity-server-datadir-config
+      - name: teamcity-server-data
+        persistentVolumeClaim:
+          claimName: teamcity-server-data
+      - name: startup-wrp
+        configMap:
+          defaultMode: 0755
+          name: teamcity-server-startup-wrp
+          optional: false
+      - emptyDir: {}
+        name: node-data
+      - emptyDir: {}
+        name: home-tcuser

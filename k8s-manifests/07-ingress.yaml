@@ -1,0 +1,98 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: teamcity-server-proxy
+  namespace: teamcity
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  tls:
+  - secretName: "teamcity-server-proxy-tls"
+    hosts:
+    - teamcity.example.com
+    - teamcity.isolated.example.com
+    - teamcity-main.example.com
+  rules:
+  - host: teamcity.example.com
+    http:
+      paths:
+      - path: /img
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - path: /js
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - path: /presignedTokenAuth
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server-proxy
+            port:
+              name: http
+  - host: teamcity.isolated.example.com
+    http:
+      paths:
+      - path: /img
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - path: /js
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - path: /presignedTokenAuth
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server
+            port:
+              name: http
+      - pathType: ImplementationSpecific
+        backend:
+          service:
+            name: teamcity-server-proxy
+            port:
+              name: http
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: teamcity-server-main
+  namespace: teamcity
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: teamcity-main.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: teamcity-server-direct-h0
+            port:
+              name: http

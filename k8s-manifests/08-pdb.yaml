@@ -1,0 +1,29 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamcity-server
+  namespace: teamcity
+  labels:
+    app: teamcity-server
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: teamcity-server
+      component: server
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamcity-server-proxy
+  namespace: teamcity
+  labels:
+    app: teamcity-server-proxy
+    component: proxy
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: teamcity-server-proxy
+      component: proxy
