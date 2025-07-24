@@ -25,14 +25,16 @@ data:
     initfile=${TEAMCITY_DATA_PATH}/system/dataDirectoryInitialized
     if [ "$HOSTNAME" == "teamcity-server-0" ]; then
       if [ ! -f $initfile ]; then
-        echo $initfile not found
-        echo Assume initial setup
-        index=0
-        while [ -d ${TEAMCITY_DATA_PATH}/config.back.$index ]; do
-          index=$((index + 1))
-        done
-        echo Hide mounted files
-        mv -v ${TEAMCITY_DATA_PATH}/config ${TEAMCITY_DATA_PATH}/config.back.$index
+        if [ ! -f ${TEAMCITY_DATA_PATH}/config/database.properties ]; then
+          echo $initfile not found
+          echo Assume initial setup
+          index=0
+          while [ -d ${TEAMCITY_DATA_PATH}/config.back.$index ]; do
+            index=$((index + 1))
+          done
+          echo Hide mounted files
+          mv -v ${TEAMCITY_DATA_PATH}/config ${TEAMCITY_DATA_PATH}/config.back.$index
+        fi
       fi
     fi
 
