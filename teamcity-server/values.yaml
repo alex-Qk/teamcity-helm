@@ -1,0 +1,158 @@
+# TeamCity Server Helm Chart Values
+namespace: teamcity
+
+# Server configuration
+server:
+  replicas: 2
+  memOpts: "-Xms512m -Xmx2048m"
+  
+  # Image configuration
+  image:
+    repository: jetbrains/teamcity-server
+    tag: latest
+    pullPolicy: Always
+  
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 2048Mi
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8111
+    targetPort: 8111
+
+  # Persistent storage
+  persistence:
+    enabled: true
+    storageClass: "efs-sc"
+    size: 16Gi
+    accessModes:
+      - ReadWriteMany
+    annotations:
+      helm.sh/resource-policy: keep
+
+  # ConfigMap settings
+  config:
+    databaseProperties: |
+      connectionUrl=jdbc:postgresql://postgresql.teamcity:5432/teamcity
+      connectionProperties.user=teamcity
+      connectionProperties.password=teamcity-pass
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Service account
+  serviceAccount:
+    create: true
+    name: teamcity-server
+    annotations: {}
+    automount: false
+
+  # RBAC settings
+  rbac:
+    create: true
+    clusterRole:
+      name: "teamcity:manage-agents"
+      rules:
+      - apiGroups: [""]
+        resources: ["namespaces"]
+        verbs: ["list", "get"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "create", "list", "delete"]
+      - apiGroups: ["extensions", "apps"]
+        resources: ["deployments"]
+        verbs: ["list", "get"]
+
+  # Anti-affinity for server pods
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: teamcity-server
+            component: server
+        topologyKey: kubernetes.io/hostname
+
+  # Node selector, tolerations
+  nodeSelector: {}
+  tolerations: []
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: selfsigning-issuer
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+  hosts:
+    - host: teamcity.alexandertsvetkov.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: "hp-teamcity-server-tls"
+      hosts:
+        - teamcity.alexandertsvetkov.com
+
+# Proxy configuration (HAProxy)
+proxy:
+  enabled: true
+  replicas: 2
+  image:
+    repository: haproxy
+    tag: "3.0"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "80Mi"
+  
+  # Pod disruption budget for proxy
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  
+  # Security context for HAProxy
+  securityContext:
+    sysctls:
+    - name: net.ipv4.ip_unprivileged_port_start
+      value: "1"
+  
+  # Lifecycle hooks
+  lifecycle:
+    preStop:
+      exec:
+        command:
+          - sh
+          - -c
+          - "sleep 10; kill -s SIGUSR1 1"
+  
+  # Startup probe
+  startupProbe:
+    httpGet:
+      path: /login.html
+      port: http
+      scheme: HTTP
+    failureThreshold: 120
+    periodSeconds: 5
+  
+  # Anti-affinity for proxy pods
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: teamcity-server-proxy
+            component: proxy
+        topologyKey: kubernetes.io/hostname
+
+  # HAProxy configuration is now dynamically generated based on server.replicas

@@ -1,0 +1,36 @@
+{{- if .Values.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "teamcity-agent.fullname" . }}-work
+  labels:
+    {{- include "teamcity-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-work
+spec:
+  accessModes:
+    - {{ .Values.persistence.workVolume.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.workVolume.size }}
+  {{- if .Values.persistence.workVolume.storageClass }}
+  storageClassName: {{ .Values.persistence.workVolume.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "teamcity-agent.fullname" . }}-system
+  labels:
+    {{- include "teamcity-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-system
+spec:
+  accessModes:
+    - {{ .Values.persistence.systemVolume.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.systemVolume.size }}
+  {{- if .Values.persistence.systemVolume.storageClass }}
+  storageClassName: {{ .Values.persistence.systemVolume.storageClass }}
+  {{- end }}
+{{- end }}

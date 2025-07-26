@@ -1,0 +1,34 @@
+{{- if .Values.server.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamcity-server
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+    app: teamcity-server
+spec:
+  minAvailable: {{ .Values.server.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: teamcity-server
+      component: server
+{{- end }}
+---
+{{- if and .Values.proxy.enabled .Values.proxy.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamcity-server-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+    app: teamcity-server-proxy
+    component: proxy
+spec:
+  minAvailable: {{ .Values.proxy.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: teamcity-server-proxy
+      component: proxy
+{{- end }}

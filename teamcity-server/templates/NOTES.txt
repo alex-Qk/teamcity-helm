@@ -1,0 +1,34 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.server.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Values.namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services teamcity-server-proxy)
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Values.namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.server.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Values.namespace }} svc -w teamcity-server-proxy'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Values.namespace }} teamcity-server-proxy --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:80
+{{- else if contains "ClusterIP" .Values.server.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Values.namespace }} -l "app=teamcity-server-proxy,component=proxy" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Values.namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Values.namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. TeamCity Server is starting up. You can monitor the status with:
+   kubectl get pods -n {{ .Values.namespace }} -l app=teamcity-server
+
+3. To access TeamCity Server directly (bypassing proxy):
+   kubectl port-forward -n {{ .Values.namespace }} svc/teamcity-server {{ .Values.server.service.port }}:{{ .Values.server.service.port }}
+   Then visit http://localhost:{{ .Values.server.service.port }}
+
+4. First-time setup:
+   - TeamCity will prompt for initial configuration
+   - Configure your database connection in the web UI
+   - Create an administrator account

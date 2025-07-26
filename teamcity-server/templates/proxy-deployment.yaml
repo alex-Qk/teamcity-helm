@@ -1,0 +1,61 @@
+{{- if .Values.proxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teamcity-server-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+    app: teamcity-server-proxy
+    component: proxy
+spec:
+  replicas: {{ .Values.proxy.replicas }}
+  selector:
+    matchLabels:
+      app: teamcity-server-proxy
+      component: proxy
+  template:
+    metadata:
+      labels:
+        app: teamcity-server-proxy
+        component: proxy
+        {{- include "teamcity-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.proxy.affinity }}
+      affinity:
+        {{- toYaml .Values.proxy.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.proxy.securityContext }}
+      securityContext:
+        {{- toYaml .Values.proxy.securityContext | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: haproxy
+        image: {{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag }}
+        imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+        {{- if .Values.proxy.lifecycle }}
+        lifecycle:
+          {{- toYaml .Values.proxy.lifecycle | nindent 10 }}
+        {{- end }}
+        {{- if .Values.proxy.startupProbe }}
+        startupProbe:
+          {{- toYaml .Values.proxy.startupProbe | nindent 10 }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        {{- if .Values.proxy.resources }}
+        resources:
+          {{- toYaml .Values.proxy.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: haproxy-config
+          mountPath: /usr/local/etc/haproxy
+      volumes:
+      - name: haproxy-config
+        configMap:
+          name: teamcity-server-haproxy-cfg
+          defaultMode: 420
+          optional: false
+{{- end }}

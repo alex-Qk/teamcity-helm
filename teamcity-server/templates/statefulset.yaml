@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: teamcity-server
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicas }}
+  serviceName: teamcity-server-headless
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: teamcity-server
+      component: server
+  template:
+    metadata:
+      labels:
+        app: teamcity-server
+        component: server
+        {{- include "teamcity-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.server.affinity }}
+      affinity:
+        {{- toYaml .Values.server.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.server.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml .Values.server.tolerations | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "teamcity-server.serviceAccountName" . }}
+      containers:
+      - name: teamcity-server
+        image: {{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}
+        imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+        livenessProbe:
+          httpGet:
+            path: /healthCheck/healthy
+            port: http
+            scheme: HTTP
+          failureThreshold: 3
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthCheck/ready
+            port: http
+            scheme: HTTP
+          failureThreshold: 2
+          periodSeconds: 10
+        env:
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: TEAMCITY_SERVER_MEM_OPTS
+          value: {{ .Values.server.memOpts | quote }}
+        command:
+          - /bin/sh
+          - "-c"
+          - |
+            POD_INDEX=$(echo "$MY_POD_NAME" | grep -o '[0-9]*$')
+
+            echo "Pod name: $MY_POD_NAME, Pod index: $POD_INDEX"
+
+            if [ "$POD_INDEX" = "0" ]; then
+              export ROOT_URL="http://teamcity-server-0.teamcity-server-headless.{{ .Values.namespace }}:{{ .Values.server.service.port }}"
+              export NODE_ID="teamcity-server-0"
+              export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=teamcity-server-0 -Dteamcity.server.rootURL=$ROOT_URL -Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+            else
+              export ROOT_URL="http://teamcity-server-${POD_INDEX}.teamcity-server-headless.{{ .Values.namespace }}:{{ .Values.server.service.port }}"
+              export NODE_ID="teamcity-server-${POD_INDEX}"
+              export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=teamcity-server-${POD_INDEX} -Dteamcity.server.rootURL=$ROOT_URL -Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+            fi
+
+            exec /run-services.sh
+        ports:
+        - containerPort: {{ .Values.server.service.targetPort }}
+          name: http
+          protocol: TCP
+        {{- if .Values.server.resources }}
+        resources:
+          {{- toYaml .Values.server.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - mountPath: /data/teamcity_server/datadir
+          name: teamcity-server-data
+        - name: teamcity-server-config
+          mountPath: /data/teamcity_server/datadir/config/database.properties
+          subPath: database.properties
+        - mountPath: /opt/teamcity/node-data
+          name: node-data
+        - mountPath: /home/tcuser
+          name: home-tcuser
+      volumes:
+      - name: teamcity-server-config
+        configMap:
+          defaultMode: 0644
+          name: teamcity-server-config
+      {{- if .Values.server.persistence.enabled }}
+      - name: teamcity-server-data
+        persistentVolumeClaim:
+          claimName: teamcity-server-data
+      {{- else }}
+      - name: teamcity-server-data
+        emptyDir: {}
+      {{- end }}
+      - emptyDir: {}
+        name: node-data
+      - emptyDir: {}
+        name: home-tcuser

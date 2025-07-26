@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: teamcity-server
+  namespace: teamcity
+spec:
+  replicas: 2
+  serviceName: teamcity-server-headless
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: teamcity-server
+      component: server
+  template:
+    metadata:
+      labels:
+        app: teamcity-server
+        component: server
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: teamcity-server
+                component: server
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: teamcity-server
+        image: jetbrains/teamcity-server:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /healthCheck/healthy
+            port: http
+            scheme: HTTP
+          failureThreshold: 3
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthCheck/ready
+            port: http
+            scheme: HTTP
+          failureThreshold: 2
+          periodSeconds: 10
+        env:
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: TEAMCITY_SERVER_MEM_OPTS
+          value: "-Xms512m -Xmx2048m"
+        command:
+          - /bin/sh
+          - "-c"
+          - |
+            POD_INDEX=$(echo "$MY_POD_NAME" | grep -o '[0-9]*$')
+
+            echo "Pod name: $MY_POD_NAME, Pod index: $POD_INDEX"
+
+            if [ "$POD_INDEX" = "0" ]; then
+              export ROOT_URL="http://teamcity-server-0.teamcity-server-headless.teamcity:8111"
+              export NODE_ID="teamcity-server-0"
+              export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=teamcity-server-0 -Dteamcity.server.rootURL=$ROOT_URL -Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+            else
+              export ROOT_URL="http://teamcity-server-${POD_INDEX}.teamcity-server-headless.teamcity:8111"
+              export NODE_ID="teamcity-server-${POD_INDEX}"
+              export TEAMCITY_SERVER_OPTS="-Dteamcity.server.nodeId=teamcity-server-${POD_INDEX} -Dteamcity.server.rootURL=$ROOT_URL -Dteamcity.node.data.path=/opt/teamcity/node-data $TEAMCITY_SERVER_OPTS"
+            fi
+
+            exec /run-services.sh
+        ports:
+        - containerPort: 8111
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 2048Mi
+
+        volumeMounts:
+        - mountPath: /data/teamcity_server/datadir
+          name: teamcity-server-data
+        - name: teamcity-server-config
+          mountPath: /data/teamcity_server/datadir/config/database.properties
+          subPath: database.properties
+        - mountPath: /opt/teamcity/node-data
+          name: node-data
+        - mountPath: /home/tcuser
+          name: home-tcuser
+      volumes:
+      - name: teamcity-server-config
+        configMap:
+          defaultMode: 0644
+          name: teamcity-server-config
+      - name: teamcity-server-data
+        persistentVolumeClaim:
+          claimName: teamcity-server-data
+      - emptyDir: {}
+        name: node-data
+      - emptyDir: {}
+        name: home-tcuser
+
+        

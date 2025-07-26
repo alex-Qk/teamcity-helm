@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamcity-server-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+data:
+  database.properties: |
+    {{- .Values.server.config.databaseProperties | nindent 4 }}
+---
+{{- if .Values.proxy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamcity-server-haproxy-cfg
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+data:
+  haproxy.cfg: |
+    defaults
+        mode http
+        timeout connect 240s
+        timeout client 1200s
+        timeout server 1200s
+
+    frontend http-in
+        bind *:80
+
+        stats enable
+        stats uri /healthz
+
+        option httplog
+        log stdout local0  info
+
+        option http-buffer-request
+        declare capture request len 40000000
+        http-request capture req.body id 0
+        capture request header user-agent len 150
+        capture request header Host len 15
+
+        capture cookie X-TeamCity-Node-Id-Cookie= len 100
+
+        http-request add-header X-TeamCity-Proxy "type=haproxy; version=2023.11"
+        http-request set-header X-Forwarded-Host %[req.hdr(Host)]
+
+        acl node_id_cookie_found req.cook(X-TeamCity-Node-Id-Cookie) -m found
+        acl browser req.hdr(User-Agent) -m sub Mozilla
+
+        default_backend clients_not_supporting_cookies
+        use_backend clients_with_node_id_cookie if node_id_cookie_found
+        use_backend clients_supporting_cookies if browser
+
+    backend clients_with_node_id_cookie
+        # this backend handles the clients that provided the "X-TeamCity-Node-Id-Cookie" cookie
+        # clients that do so are TeamCity agents and browsers handling HTTP requests asking to switch to a specific node
+        cookie X-TeamCity-Node-Id-Cookie
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+        retry-on empty-response conn-failure response-timeout 502 503 504
+        retries 5
+
+        option httpchk GET /healthCheck/ready
+
+        default-server check fall 6 inter 10000 downinter 5000
+
+        {{- range $i := until (int .Values.server.replicas) }}
+        server teamcity-server-{{ $i }} teamcity-server-direct-{{ $i }}:{{ $.Values.server.service.port }} cookie teamcity-server-{{ $i }}
+        {{- end }}
+
+    backend clients_supporting_cookies
+        # this backend is for the browsers without "X-TeamCity-Node-Id-Cookie"
+        # these requests will be served in a round-robin manner to a healthy server
+        balance roundrobin
+        option redispatch
+        cookie TCSESSIONID prefix nocache
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+
+        option httpchk
+
+        http-check connect
+        http-check send meth GET uri /healthCheck/preferredNodeStatus
+        http-check expect status 200
+
+        default-server check fall 6 inter 10000 downinter 5000 on-marked-down shutdown-sessions
+
+        {{- range $i := until (int .Values.server.replicas) }}
+        server teamcity-server-{{ $i }} teamcity-server-direct-{{ $i }}:{{ $.Values.server.service.port }} cookie n{{ add $i 1 }} weight 50
+        {{- end }}
+
+    backend clients_not_supporting_cookies
+        # for compatibility reasons requests from non browser clients are always
+        # routed to a single node (the first healthy)
+        balance first
+        option redispatch
+
+        http-request disable-l7-retry if METH_POST METH_PUT METH_DELETE
+
+        option httpchk
+
+        http-check connect
+        http-check send meth GET uri /healthCheck/preferredNodeStatus
+        http-check expect status 200
+
+        default-server check fall 6 inter 10000 downinter 5000 on-marked-down shutdown-sessions
+
+        {{- range $i := until (int .Values.server.replicas) }}
+        server teamcity-server-{{ $i }} teamcity-server-direct-{{ $i }}:{{ $.Values.server.service.port }}
+        {{- end }}
+{{- end }}

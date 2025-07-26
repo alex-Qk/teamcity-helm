@@ -1,0 +1,29 @@
+{{- if .Values.server.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.server.rbac.clusterRole.name }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+rules:
+{{- range .Values.server.rbac.clusterRole.rules }}
+- apiGroups: {{ .apiGroups | toJson }}
+  resources: {{ .resources | toJson }}
+  verbs: {{ .verbs | toJson }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.server.rbac.clusterRole.name }}
+  labels:
+    {{- include "teamcity-server.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.server.rbac.clusterRole.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "teamcity-server.serviceAccountName" . }}
+    namespace: {{ .Values.namespace }}
+{{- end }}

@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: teamcity-server-proxy
+  namespace: teamcity
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: selfsigning-issuer
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+  - secretName: "hp-teamcity-server-tls"
+    hosts:
+    - teamcity.alexandertsvetkov.com
+  rules:
+  - host: teamcity.alexandertsvetkov.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: teamcity-server-proxy
+            port:
+              name: http

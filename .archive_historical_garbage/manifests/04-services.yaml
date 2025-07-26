@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamcity-server
+  namespace: teamcity
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8111
+      targetPort: http
+  selector:
+    app: teamcity-server
+    component: server
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamcity-server-headless
+  namespace: teamcity
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: false
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8111
+      targetPort: http
+  selector:
+    app: teamcity-server
+    component: server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamcity-server-direct-0
+  namespace: teamcity
+  annotations:
+    node-id: "teamcity-server-0"
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8111
+      targetPort: http
+  selector:
+    app: teamcity-server
+    component: server
+    statefulset.kubernetes.io/pod-name: teamcity-server-0
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamcity-server-direct-1
+  namespace: teamcity
+  annotations:
+    node-id: "teamcity-server-1"
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8111
+      targetPort: http
+  selector:
+    app: teamcity-server
+    component: server
+    statefulset.kubernetes.io/pod-name: teamcity-server-1
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamcity-server-proxy
+  namespace: teamcity
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+  selector:
+    app: teamcity-server-proxy
+    component: proxy
+  type: ClusterIP
