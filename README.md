@@ -8,7 +8,6 @@ This deployment consists of:
 - **TeamCity Server**: HA setup with 2 replicas using StatefulSet
 - **HAProxy Load Balancer**: Routes traffic between server instances
 - **TeamCity Agents**: Horizontally scalable agents in separate namespace
-- **PostgreSQL Database**: External database (via Bitnami chart)
 - **Shared Storage**: EFS-based ReadWriteMany storage for HA
 
 ## Prerequisites
@@ -18,15 +17,6 @@ This deployment consists of:
 - ReadWriteMany storage class (e.g., EFS with CSI driver)
 - Ingress controller (nginx recommended)
 - cert-manager (optional, for TLS)
-
-### Required Tools
-- kubectl
-- helm (v3+)
-- Access to cluster with sufficient permissions
-
-### Storage Requirements
-- **EFS CSI Driver**: For ReadWriteMany storage support
-- **Storage Classes**: `efs-sc` configured for EFS volumes
 
 ## Quick Start
 
@@ -62,7 +52,7 @@ helm install teamcity-agent ./teamcity-agent \
 ```
 
 ### 5. Initial Setup
-After deployment, authorize TeamCity nodes manually:
+After deployment, initialize TeamCity nodes manually:
 ```bash
 kubectl port-forward -n teamcity svc/teamcity-server-direct-1 8111:8111
 ```
@@ -84,8 +74,6 @@ persistence:
   storageClass: "your-storage-class"
 ```
 
-## Monitoring and Troubleshooting
-
 ### Access TeamCity UI
 ```bash
 # Port forward to access directly
@@ -101,17 +89,6 @@ kubectl port-forward -n teamcity svc/teamcity-server 8111:8111
 - **StatefulSet**: Ensures predictable pod names and stable storage
 - **Pod Anti-Affinity**: Spreads server pods across different nodes
 - **Pod Disruption Budget**: Maintains minimum availability during updates
-- **HAProxy Load Balancer**: Distributes traffic between server instances
-
-### Storage HA
-- **ReadWriteMany**: Shared storage accessible by all server replicas
-- **EFS Integration**: AWS EFS provides highly available shared storage
-- **Persistent Volume Claims**: Ensures data persistence across pod restarts
-
-### Agent Scalability
-- **Horizontal Pod Autoscaler**: Optional auto-scaling based on CPU/memory
-- **Separate Namespace**: Agents run in isolated namespace
-- **Stateless Design**: Agents can be easily scaled up/down
 
 ## Known Limitations
 
